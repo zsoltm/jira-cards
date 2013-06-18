@@ -1,0 +1,156 @@
+/**
+ * JIRA Card Generator
+ * Generates printable cards from a set of specified JIRA issues.
+ * 
+ * TODO (ZsM): use keep-alive connections.
+ *
+ * @author Bertalan Fodor, Zsolt Mészárovics
+ */
+import com.cedarsoftware.util.io.JsonReader; 
+import javax.net.ssl.HostnameVerifier;
+import javax.net.ssl.HttpsURLConnection;
+import javax.net.HttpURLConnection;
+import javax.net.ssl.SSLSession;
+import com.epam.base64coder.Base64Coder;
+import com.martiansoftware.jsap.JSAP;
+import com.martiansoftware.jsap.SimpleJSAP;
+import com.martiansoftware.jsap.FlaggedOption;
+import com.martiansoftware.jsap.Parameter;
+import com.martiansoftware.jsap.FlaggedOption;
+import com.martiansoftware.jsap.UnflaggedOption;
+import com.google.template.soy.data.SoyData;
+import com.google.template.soy.data.SoyMapData;
+import com.google.template.soy.data.SoyListData;
+import com.google.template.soy.SoyFileSet;
+
+argParser = new SimpleJSAP( 
+    "taskcards", 
+    "Generates printable cards from a set of specified JIRA issues.",
+    new Parameter [] {
+        new FlaggedOption("user", JSAP.STRING_PARSER, JSAP.NO_DEFAULT, JSAP.NOT_REQUIRED, 'u', JSAP.NO_LONGFLAG, 
+            "User name for authentication (no authentication performed if omitted)"),
+        new FlaggedOption("password", JSAP.STRING_PARSER, JSAP.NO_DEFAULT, JSAP.NOT_REQUIRED, 'p', JSAP.NO_LONGFLAG, 
+            "Password used for authentication"),
+        new FlaggedOption("host", JSAP.STRING_PARSER, "http://jira.hotels.com/rest/api/2/", JSAP.NOT_REQUIRED, 'h', "host", 
+            "JIRA REST API URL"),
+        new FlaggedOption("template", JSAP.STRING_PARSER, "taskcards.soy", JSAP.NOT_REQUIRED, 't', "template", 
+            "freemarker template file"),
+        new FlaggedOption("output", JSAP.STRING_PARSER, "taskcards.html", JSAP.NOT_REQUIRED, 'o', "out", 
+            "output filename (use .html extension)"),
+        new UnflaggedOption("issue", JSAP.STRING_PARSER, JSAP.NO_DEFAULT, JSAP.REQUIRED, JSAP.GREEDY, 
+            "One or more JIRA issue IDs" )
+    }
+);
+
+config = argParser.parse(bsh.args);    
+if (argParser.messagePrinted()) System.exit(1);
+
+apiURI = new URI(config.getString("host"));
+pregenToken = null;
+
+generateBasicAuthToken() {
+    token = new StringBuilder(config.getString("user"));
+    token.append(':');
+    if (config.contains("password")) {
+        token.append(config.getString("password"));
+    }
+    pregenToken = "Basic " + Base64Coder.encodeString(token.toString());
+    return pregenToken;
+}
+
+performAuth(conn) {
+    conn.setRequestProperty("Authorization",
+        pregenToken == null ? generateBasicAuthToken() : pregenToken);
+}
+
+createCard(issueId) {
+    url = apiURI.resolve("issue/" + issueId + "?fields=summary,parent,description,issuetype,subtasks").toURL();
+    Map card = new HashMap();
+    try {
+        conn = url.openConnection();
+        if (config.contains("user")) performAuth(conn);
+        rd = new BufferedReader(new InputStreamReader(conn.getInputStream()));
+        sb = new StringBuilder();
+        line = "";
+        while ((line = rd.readLine()) != null) {
+            sb.append(line);
+        }
+        map = JsonReader.toMaps(sb.toString());
+        card{"issueId"} = map{"key"};
+        fields = map{"fields"};
+        if (fields{"parent"} != null) {
+            card{"parentId"} = fields{"parent"}{"key"};
+        }
+        card{"title"}=fields{"summary"};
+        card{"titlefontsize"}=Math.min(1, 40.0/card{"title"}.length());
+        card{"description"}=fields{"description"};
+        card{"type"}=fields{"issuetype"}{"name"}.replaceAll(" ","_");
+        card{"subtasks"} = new ArrayList();
+        for (subtask : fields{"subtasks"}) {
+            card{"subtasks"}.add(subtask{"key"});
+            print("   subtask " + subtask{"key"});
+        }
+        rd.close();
+        return card;        
+    } catch (FileNotFoundException e) {
+        print("Issue " + issueId + " not found.");
+    } catch (IOException e) {
+        if (conn != null && conn.getResponseCode() == HttpsURLConnection.HTTP_UNAUTHORIZED) {
+            print("invalid username or password, server requires authentication");
+        } else {
+            print(e.getMessage());
+        }
+    }
+    return null;
+}
+
+setUpSSL() {
+    verifier = new HostnameVerifier() {
+        verify(String host, SSLSession session) {
+            return true;
+        }
+    };
+    HttpsURLConnection.setDefaultHostnameVerifier(verifier);
+}
+
+createCards() {
+    cards = new ArrayList();
+    for (ticket : config.getStringArray("issue")) {
+        card = createCard(ticket);
+        if (card != null) {
+            cards.add(card);
+            print("Added card " + card{"issueId"});
+        }
+    }
+    return cards;
+}
+
+buildSoyData(cards) {
+    soyCards = new SoyListData();
+    soyModel = new SoyMapData();
+    soyModel.putSingle("cards", soyCards);
+    for (card : cards) {
+        soyCard = new SoyMapData();
+        for (cardEntry : card.entrySet()) {
+            soyCard.putSingle(cardEntry.getKey(), SoyData.createFromExistingData(cardEntry.getValue()));
+        }
+        soyCards.add(soyCard);
+    }
+
+    return soyModel;
+}
+
+if (apiURI.getScheme().startsWith("https")) {
+    setUpSSL();    
+}
+
+cards = createCards();
+tofu = new SoyFileSet.Builder().add(new File(config.getString("template"))).build().compileToTofu();
+output = tofu.newRenderer("taskcards.page").setData(buildSoyData(cards)).render();
+
+fos = new FileOutputStream(new File(config.getString("output")));
+osw = new OutputStreamWriter(fos, "UTF-8");
+osw.write(output);
+osw.close();
+
+exec("cmd /c start " + config.getString("output"));

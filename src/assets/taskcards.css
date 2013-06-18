@@ -1,0 +1,29 @@
+div.card {
+   width: 6.5cm;
+   height: 6.5cm;
+   border: 1px solid black;
+   padding: 2px;
+   font-family: Arial;
+   margin-bottom:1cm;
+}
+div.card.odd {
+    float: left;
+}
+div.card.even {
+  margin-left:7.5cm;  
+}
+
+
+
+div.issueId { font-size: 0.9cm; font-weight: bold; }
+
+.Story div.issueId { color:black; background-color: white; }
+.Story div.parentId { color:black; background-color: white; }
+
+div.parentId { font-size: small } 
+div.title { font-weight: bold; word-break: break-word; }
+div.title.small { font-size: 0.4cm }
+
+img.icon { height:54px; width:54px; float:left; margin-right:5px; }
+
+div.card.test_task { background:url(stripe.png); }

@@ -1,0 +1,36 @@
+{namespace taskcards}
+
+/**
+ * @param cards task cards
+ */
+{template .page}
+<html>
+<head>
+  <link rel="stylesheet" href="assets/taskcards.css">
+<body>
+{foreach $card in $cards}
+	{if index($card) % 6 == 0 and not isFirst($card)}
+		<p style="page-break-before: always">
+	{/if}
+
+	<div class="card {index($card) % 2 == 1 ? 'even' : 'odd'}{if $card.type} {$card.type}{/if}"  >
+	  <div class="issueId">
+	  	{if $card.type}
+	  		<img class="icon" src="assets/issueType/{$card.type}.png" />
+  		{/if}
+  		{$card.issueId}
+	  </div>
+	  {if $card.parentId}
+	  	<div class="parentId">{$card.parentId}</div>
+  	  {/if}
+	  <hr />
+	  <div class="title" style="font-size:{$card.titlefontsize}cm">{$card.title}</div>
+	  // <div class="description">{$card.description}</div>
+	  // {foreach $subtask in $card.subtasks}
+	  //	<p>{$subtask}</p>
+	  // {/foreach}
+	</div>	
+{/foreach}
+</body>
+</html>
+{/template}
